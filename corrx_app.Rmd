@@ -29,7 +29,7 @@ library(data.table)
 #     read.csv(file,  header = TRUE, stringsAsFactors=FALSE)
 #   })
 # }
-
+corrx_1k_sim <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
   
 ```
 Calculator
@@ -49,9 +49,9 @@ selectInput("power", "Select target power percentage: ", choices =c('80', '90') 
 selectInput("skewness", "Select variable skewness: ", choices =c('normal', 'mild', 'extreme') ,selected = 'normal')
 selectInput("corr_method", "Select correlation method: ", choices =c('Pearson', 'Spearman') ,selected = 'normal')
 # selectInput("power_method", "Select Fisher's Z implementation: ", choices =c('analytical', 'simulation') ,selected = 'analytical')
-sliderInput("ratio", "Ratio of Mz to Dz twin:", min=0, max=10, value=1, step=0.01)
+sliderInput("ratio", "Ratio of Mz to Dz twin:", min=0, max=10, value=1, step=1)
 # sliderInput("rho1", "Corr(x,y) in Mz twins:",min=0, max=1, value=0.6, step=0.01)
-sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0.0, max=1.0, value=0.2, step=0.01)
+sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0, max=1, value=0.2, step=0.1)
     
 hr()
 
@@ -64,33 +64,20 @@ Outputs
 ### Calculator (<i>set parameters to view plot</i>)
 ```{r}
 
-# load data
-corrx_1k_sim <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
-
-```
-
-
-
-```{r}
-server <- function(input, output) {
-power_obs <- reactive({
-  corrx_1k_sim %...>%
-        filter(
-                 # method == "pearson" &
-                 # dist   == "normal" &
-                 # n1/n2  == 1 &
-                 # rho2   == .5
-                 method == input$corr_method &
-                 dist   == input$skewness    &
-                 n1/n2  == input$ratio       &
-                 rho2   == input$rho2
-              ) %...>%
-        select(n1,n2,rho1,fz_nosim,fz)  %...>%
-        mutate(n = n1 + n2) %...>%
-        mutate(log_n = log2(n)) %...>%
-        select(n,rho1,fz_nosim,fz)  %...>%
+# filter data
+obs <- reactive({
+  corrx_1k_sim %>%
+        filter(method  == tolower(input$corr_method) &
+                 dist  == input$skewness    &
+                 n1/n2 == input$ratio       &
+                 rho2  == input$rho2
+              ) %>%
+        select(n1,n2,rho1,fz_nosim,fz)  %>%
+        mutate(n = n1 + n2) %>%
+        mutate(log_n = log2(n)) %>%
+        select(n,log_n,rho1,fz_nosim,fz)  %>%
         melt(
-           id.vars=c("n","rho1"),
+           id.vars=c("n","log_n","rho1"),
           measure.vars=c("fz_nosim","fz"),
           variable.name="test",
           value.name="power")
@@ -98,99 +85,96 @@ power_obs <- reactive({
 # power_obs()
 
 power_estimate <- reactive({
-  corrx_1k_sim %...>%
+  power_estimate<-corrx_1k_sim %>%
     filter(method == input$corr_method &
              dist == input$skewness    &
              round(log(n1/n2),2) == round(log(input$ratio),2) &
              rho1 == 0.4       &
              rho2 == 0.9
     ) 
-})  
-  
-  
-mydata <- reactive({
-    # Model Parameters:
-      r1        <- .1
-      r2        <- .5 # input$rho2
-      rdiff     <- r1 - r2
-      maxn      <- 2000
-      mzdz      <- 1 # input$ratio
-      # alpha     <- input$alpha
-      sidedness <- 2
-      # method    <- input$method
-      method    <- "pearson" # input$corr_method
-      skew      <- input$skewness
-      # Step 1: calculate Fisher's Z
-      z1        <- atanh(r1)
-      z2        <- atanh(r2)
-      # Step    2: take difference
-      zdiff     <- z1-z2
-      # Step    3: calculate standard errmzor and test statistic
-      tot_n         <- 15:maxn
-      mzdz_vec <- seq(0,10,0.01)
-      # n_p1         <- cbind(mz = tot_n*mzdz,dz = tot_n*(1-mzdz))
-      n_p1         <- cbind(mz = tot_n/(mzdz+1)*mzdz,dz = tot_n/(mzdz+1))
-      n_p2         <- cbind(mz = maxn/(mzdz_vec+1)*mzdz_vec,dz = maxn/(mzdz_vec+1))
-      z_se_p1      <- sqrt(rowSums(1/(n_p1-3)))
-      z_se_p2      <- sqrt(rowSums(1/(n_p2-3)))
-      z_test_p1    <- zdiff/z_se_p1
-      z_test_p2    <- zdiff/z_se_p2
-      # optionally return p-value for observing diff at least this large under H0
-      # z_p    <- sidedness*pnorm(-abs(z_test))
-      z_ref    <- c(qnorm(1-0.1/2),qnorm(1-0.05/2))
-      z_power1a <- 1-pnorm(z_ref[1] - abs(z_test_p1))
-      z_power1b <- 1-pnorm(z_ref[2] - abs(z_test_p1))
-      z_power1  <- rbind(cbind(z_power1a,z_ref[1]),cbind(z_power1b,z_ref[2]))
-      z_power2a <- 1-pnorm(z_ref[1] - abs(z_test_p2))
-      z_power2b <- 1-pnorm(z_ref[2] - abs(z_test_p2))
-      z_power2  <- rbind(cbind(z_power2a,z_ref[1]),cbind(z_power2b,z_ref[2]))
-      colnames(z_power1) <- colnames(z_power2) <- c("power","ref")
-      
-    # Collect and output results
-    params1 <- paste0("MZ:DZ ratio: ",mzdz,"; rho_mz: ",r1,"; rho_dz: ",r2,"; delta: ",rdiff)
-    params2 <- paste0("N: ",maxn,"; rho_mz: ",r1,"; rho_dz: ",r2,"; delta: ",rdiff)
-    data1   <- cbind(n = tot_n,mzdz = mzdz,        mz = n_p1[,1],dz = n_p1[,2] , power1 = z_power1)
-    data2   <- cbind(n = maxn, mzdz_vec = mzdz_vec,mz = n_p2[,1],dz = n_p2[,2] , power2 = z_power2)
-    list(data1 =data1, 
-         data2 = data2, 
-         params1 = params1,
-         params2 = params2 )
-    })
-  
-  output$datatable <-
-    renderTable({
-      dt <- mydata()[["data"]]
-      dt
-    })
-    
+})
+```
 
-  output$graph1 <- renderPlot({
-   p <- ggplot(as.data.frame(mydata()[["data1"]]),
-        aes(x=mz, y=n, group=as.character(round(ref,2))))
-   p <- p +
-     geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75) +
-     ggtitle(paste0("Power estimate given parameters (",mydata()[["params1"]],")"))+
-     scale_y_continuous(name="N")+
-     scale_x_continuous(labels = comma, name="MZ???",limits = c(0,1), expand = c(0,0) ) + 
-     labs(colour = "Normal ordinate")
-   print(p)
+
+
+```{r}
+# server <- function(input, output) {
+# Make a barplot or scatterplot depending of the selected point
+# renderTable({
+#   head(obs())
+# })
+renderPlot({
+    # fitted values (interpolated over observed)
+    # fit <- data.table()
+    # for(x in levels(obs()$test)) {
+    #   fit <- rbind(fit,
+    #                cbind("test" = x,
+    #                      "n"    = min(obs()[,"n"]):max(obs()[,"n"]),
+    #                      "rho1" = splinefun(obs()[test %in% x,"log_n"],
+    #                                          obs()[test %in% x,"power"],
+    #                                          method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
+    # }
+    # fit$n <- as.integer(fit$n)
+    # fit$power <- as.double(fit$power)
+
+    # # find x intercept give y of 0.8
+    # cross <- data.table()
+    # for(x in levels(obs()$test)) {
+    #   cross <- rbind(cross,
+    #                  fit[(test %in% x)][which.min(abs(input$power-fit[(test %in% x),power]))])
+    # }
+    # 
+    # # associate x intercept (required sample size for 80% power) with test name
+    # cross$label <- c("FZ (no sim.)",
+    #                  "FZ")
+    # cross[,"label":= paste0(label," (,n,)"),by=1:nrow(cross)]
+    # 
+    # # order tests by smallest sample size estimate required to achieve power threshold
+    # cross <- cross[order(+rank(n))]
+    # define plot title
+    title <- paste0("Power to detect difference in ",input$corr_method," correlations, by sample size\n",
+                    input$dist,"\n",
+                    "DZ rho: (",input$rho2,")",
+                    "; Mz to Dz ratio: ",input$ratio, "; sims: 1000")
+    # initialise plot
+    p <- ggplot(NULL, aes(x = rho1, y = n, colour = test, group = test))+ 
+      scale_y_continuous(trans='log2',bquote(N~(log[2]~scale)), 
+                         breaks = unique(obs()$n),
+                         limits = c(30,1920)) +
+      scale_x_continuous(bquote(Rho_mz), 
+                         breaks = seq(0,1,0.1),
+                         limits = c(0,1)) +
+      geom_point(data = obs())  +
+      # geom_line(data = fit, lwd = 1) +
+      # geom_hline(yintercept = 0.8) +
+      # geom_vline(aes(xintercept = cross$n, colour = cross$test)) +
+      scale_colour_discrete(name="Tests (req. n)"
+                            # ,
+                            # breaks=cross$test,
+                            # labels=cross$label
+                            )  +
+      theme(panel.grid.minor = element_blank(),
+            panel.background = element_blank(), 
+            axis.line = element_line(colour = "black")) +
+      ggtitle(title)
+    print(p)
   })
-  
-}
+# }
 ```
 
 ```{r}
-ui <- fluidPage(
-
-    plotOutput("graph1"),
-    tableOutput("datatable")
-
-
-)
+# ui <- fluidPage(
+# 
+#   br(),
+#   column(8,plotOutput("graph")),
+#   br()
+# 
+# 
+# )
 ```
 
 ```{r}
-shinyApp(ui = ui, server = server)
+# shinyApp(ui = ui, server = server)
 ```
 
 
