@@ -1,0 +1,172 @@
+---
+title: "Corrx: Classical Twin Study Power Calculator and Simulation Reference"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+    theme: flatly
+runtime: shiny
+
+---
+
+
+```{r setup, include=FALSE}
+# Carl Higgs, 2019
+
+library(flexdashboard)
+library(knitr)
+library(shiny)
+library(ggplot2)
+library(scales)
+# library(dplyr)
+library(reshape2)
+library(data.table)
+
+# plan(multiprocess)
+# read.csv.async <- function(file) {
+#   future({
+#     read.csv(file,  header = TRUE, stringsAsFactors=FALSE)
+#   })
+# }
+
+  
+```
+Calculator
+==========
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+An interactive calculator of power for detecting difference in correlations.  The calculator uses either an analytic formula, or draws upon pre-processed simulation power results for a given set of scenario parameters.
+
+Twins Research Australia, 2019.
+
+```{r, shiny_in}
+# shiny inputs defined here
+hr()
+
+selectInput("power", "Select target power percentage: ", choices =c('80', '90') ,selected = '80')
+selectInput("skewness", "Select variable skewness: ", choices =c('normal', 'mild', 'extreme') ,selected = 'normal')
+selectInput("corr_method", "Select correlation method: ", choices =c('Pearson', 'Spearman') ,selected = 'normal')
+# selectInput("power_method", "Select Fisher's Z implementation: ", choices =c('analytical', 'simulation') ,selected = 'analytical')
+sliderInput("ratio", "Ratio of Mz to Dz twin:", min=0, max=10, value=1, step=0.01)
+# sliderInput("rho1", "Corr(x,y) in Mz twins:",min=0, max=1, value=0.6, step=0.01)
+sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0, max=1, value=0.2, step=0.01)
+    
+hr()
+
+```
+
+
+Outputs
+-----------------------------------------------------------------------
+    
+### Calculator (<i>set parameters to view plot</i>)
+```{r}
+
+# load data
+data <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
+power_obs <- reactive({
+  data %...>%
+        filter(method  == input$corr_method &
+                 dist  == input$skewness    &
+                 n1/n2 == input$ratio       &
+                 rho2  == input$rho2
+              ) %...>%
+        select(n1,n2,rho1,fz_nosim,fz)  %...>%
+        mutate(n = n1 + n2) %...>%
+        mutate(log_n = log2(n)) %...>%
+        select(n,rho1,fz_nosim,fz)  %...>%
+        melt(
+           id.vars=c("n","rho1"),
+          measure.vars=c("fz_nosim","fz"),
+          variable.name="test",
+          value.name="power")
+  })
+# power_obs()
+
+power_estimate <- reactive({
+  data %...>%
+                                          filter(method == input$corr_method &
+                                                   dist == input$skewness    &
+                                                   round(log(n1/n2),2) == round(log(input$ratio),2) &
+                                                   rho1 == 0.4       &
+                                                   rho2 == 0.9
+                                                 ) 
+                         })
+
+server <- function(input, output) {
+# Make a barplot or scatterplot depending of the selected point
+output$graph=renderPlot({
+    # observed values
+    obs <- power_obs
+    
+    # # fitted values (interpolated over observed)
+    # fit <- data.table()
+    # for(x in levels(obs$test)) {
+    #   fit <- rbind(fit,
+    #                cbind("test" = x,
+    #                      "n"    = min(power_obs$n):max(power_obs$n),
+    #                      "power" = splinefun(obs[test %in% x,log_n], 
+    #                                          obs[test %in% x,power],
+    #                                          method = "monoH.FC")(log2(min(obs$n):max(obs$n)))))
+    # }
+    # fit$n <- as.integer(fit$n)
+    # fit$power <- as.double(fit$power)
+    
+    # # find x intercept give y of 0.8
+    # cross <- data.table()
+    # for(x in levels(obs$test)) {
+    #   cross <- rbind(cross, 
+    #                  fit[(test %in% x)][which.min(abs(input$power-fit[(test %in% x),power]))])
+    # }
+    # 
+    # # associate x intercept (required sample size for 80% power) with test name
+    # cross$label <- c("FZ (no sim.)",
+    #                  "FZ")
+    # cross[,"label":= paste0(label," (,n,)"),by=1:nrow(cross)]
+    # 
+    # # order tests by smallest sample size estimate required to achieve power threshold
+    # cross <- cross[order(+rank(n))]
+    # define plot title
+    title <- paste0("Power to detect difference in ",input$corr_method," correlations, by sample size\n",
+                    input$dist,"\n",
+                    "DZ rho: (",input$rho2,")",
+                    "; Mz to Dz ratio: ",input$ratio, "; sims: 1000")
+    # initialise plot
+    p <- ggplot(NULL, aes(x = n, y = power, colour = test, group = test))+ 
+      scale_x_continuous(trans='log2',bquote(N~(log[2]~scale)), 
+                         breaks = unique(obs$n),
+                         limits = c(30,1920)) +
+      scale_y_continuous(bquote(Power~(1-beta)), 
+                         breaks = seq(0,1,0.1),
+                         limits = c(0,1)) +
+      geom_point(data = obs)  +
+      # geom_line(data = fit, lwd = 1) +
+      geom_hline(yintercept = 0.8) +
+      # geom_vline(aes(xintercept = cross$n, colour = cross$test)) +
+      scale_colour_discrete(name="Tests (req. n)"
+                            # ,
+                            # breaks=cross$test,
+                            # labels=cross$label
+                            )  +
+      theme(panel.grid.minor = element_blank(),
+            panel.background = element_blank(), 
+            axis.line = element_line(colour = "black")) +
+      ggtitle(title)
+  })
+}
+
+ui <- fluidPage(
+
+  br(),
+  column(8,plotOutput("graph")),
+  br()
+
+
+)
+
+shinyApp(ui = ui, server = server)
+```
+
+
