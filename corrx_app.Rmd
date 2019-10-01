@@ -19,7 +19,7 @@ library(knitr)
 library(shiny)
 library(ggplot2)
 library(scales)
-# library(dplyr)
+library(dplyr)
 library(reshape2)
 library(data.table)
 
@@ -65,13 +65,18 @@ Outputs
 ```{r}
 
 # load data
-data <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
+corrx_1k_sim <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
 power_obs <- reactive({
-  data %...>%
-        filter(method  == input$corr_method &
-                 dist  == input$skewness    &
-                 n1/n2 == input$ratio       &
-                 rho2  == input$rho2
+  corrx_1k_sim %...>%
+        filter(
+                 # method == "pearson" &
+                 # dist   == "normal" &
+                 # n1/n2  == 1 &
+                 # rho2   == .5
+                 method == input$corr_method &
+                 dist   == input$skewness    &
+                 n1/n2  == input$ratio       &
+                 rho2   == input$rho2
               ) %...>%
         select(n1,n2,rho1,fz_nosim,fz)  %...>%
         mutate(n = n1 + n2) %...>%
@@ -86,20 +91,43 @@ power_obs <- reactive({
 # power_obs()
 
 power_estimate <- reactive({
-  data %...>%
-                                          filter(method == input$corr_method &
-                                                   dist == input$skewness    &
-                                                   round(log(n1/n2),2) == round(log(input$ratio),2) &
-                                                   rho1 == 0.4       &
-                                                   rho2 == 0.9
-                                                 ) 
-                         })
+  corrx_1k_sim %...>%
+    filter(method == input$corr_method &
+             dist == input$skewness    &
+             round(log(n1/n2),2) == round(log(input$ratio),2) &
+             rho1 == 0.4       &
+             rho2 == 0.9
+    ) 
+})
+```
 
+
+
+```{r}
 server <- function(input, output) {
 # Make a barplot or scatterplot depending of the selected point
 output$graph=renderPlot({
     # observed values
-    obs <- power_obs
+    obs <- corrx_1k_sim %>%
+        filter(
+                 # method == "pearson" &
+                 # dist   == "normal" &
+                 # n1/n2  == 1 &
+                 # rho2   == .5
+                 method == input$corr_method &
+                 dist   == input$skewness    &
+                 n1/n2  == input$ratio       &
+                 rho2   == input$rho2
+              ) %>%
+        select(n1,n2,rho1,fz_nosim,fz)  %>%
+        mutate(n = n1 + n2) %>%
+        mutate(log_n = log2(n)) %>%
+        select(n,rho1,fz_nosim,fz)  %>%
+        melt(
+           id.vars=c("n","rho1"),
+          measure.vars=c("fz_nosim","fz"),
+          variable.name="test",
+          value.name="power")
     
     # # fitted values (interpolated over observed)
     # fit <- data.table()
@@ -156,7 +184,9 @@ output$graph=renderPlot({
       ggtitle(title)
   })
 }
+```
 
+```{r}
 ui <- fluidPage(
 
   br(),
@@ -165,7 +195,9 @@ ui <- fluidPage(
 
 
 )
+```
 
+```{r}
 shinyApp(ui = ui, server = server)
 ```
 
