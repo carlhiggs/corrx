@@ -22,6 +22,7 @@ library(scales)
 library(dplyr)
 library(reshape2)
 library(data.table)
+library(shinyWidgets)
 
 # plan(multiprocess)
 # read.csv.async <- function(file) {
@@ -45,11 +46,17 @@ Twins Research Australia, 2019.
 # shiny inputs defined here
 hr()
 
-selectInput("power", "Select target power percentage: ", choices =c('80', '90') ,selected = '80')
+selectInput("power", "Select target power proportion: ", choices =c(.8, .9) ,selected = .8)
 selectInput("skewness", "Select variable skewness: ", choices =c('normal', 'mild', 'extreme') ,selected = 'normal')
 selectInput("corr_method", "Select correlation method: ", choices =c('Pearson', 'Spearman') ,selected = 'normal')
 # selectInput("power_method", "Select Fisher's Z implementation: ", choices =c('analytical', 'simulation') ,selected = 'analytical')
-sliderInput("ratio", "Ratio of Mz to Dz twin:", min=0, max=10, value=1, step=1)
+# sliderInput("ratio", "Ratio of Mz to Dz twin:", min=0, max=10, value=1, step=1)
+sliderTextInput("ratio","Ratio value of Mz to Dz twins:",
+                            choices=c(0.015625,0.03125,0.0625,0.125,0.25,0.5,1,2,4,8,16,32,64),
+                            selected=1, grid = T)
+
+
+
 # sliderInput("rho1", "Corr(x,y) in Mz twins:",min=0, max=1, value=0.6, step=0.01)
 sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0, max=1, value=0.2, step=0.1)
     
@@ -66,19 +73,22 @@ Outputs
 
 # filter data
 obs <- reactive({
-  corrx_1k_sim %>%
+  obs <- corrx_1k_sim %>%
         filter(method  == tolower(input$corr_method) &
                  dist  == input$skewness    &
                  n1/n2 == input$ratio       &
-                 rho2  == input$rho2
+                 rho2  == input$rho2        &
+                 fz    >= input$power
               ) %>%
         select(n1,n2,rho1,fz_nosim,fz)  %>%
         mutate(n = n1 + n2) %>%
         mutate(log_n = log2(n)) %>%
-        select(n,log_n,rho1,fz_nosim,fz)  %>%
+        # select(n,log_n,rho1,fz_nosim,fz)  %>%
+        select(n,log_n,rho1,fz)  %>%
         melt(
            id.vars=c("n","log_n","rho1"),
-          measure.vars=c("fz_nosim","fz"),
+          # measure.vars=c("fz_nosim","fz"),
+          measure.vars=c("fz"),
           variable.name="test",
           value.name="power")
   })
@@ -104,18 +114,19 @@ power_estimate <- reactive({
 #   head(obs())
 # })
 renderPlot({
+    
     # fitted values (interpolated over observed)
-    # fit <- data.table()
+    fit <- data.table()
     # for(x in levels(obs()$test)) {
     #   fit <- rbind(fit,
     #                cbind("test" = x,
     #                      "n"    = min(obs()[,"n"]):max(obs()[,"n"]),
-    #                      "rho1" = splinefun(obs()[test %in% x,"log_n"],
-    #                                          obs()[test %in% x,"power"],
-    #                                          method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
+    #                      "rho1" = splinefun(obs()%>%filter(test==x)%>%select("log_n"),
+    #                                         obs()%>%filter(test==x)%>%select("rho1"),
+    #                                         method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
     # }
     # fit$n <- as.integer(fit$n)
-    # fit$power <- as.double(fit$power)
+    # fit$power <- as.double(fit$rho1)
 
     # # find x intercept give y of 0.8
     # cross <- data.table()
@@ -132,27 +143,29 @@ renderPlot({
     # # order tests by smallest sample size estimate required to achieve power threshold
     # cross <- cross[order(+rank(n))]
     # define plot title
-    title <- paste0("Power to detect difference in ",input$corr_method," correlations, by sample size\n",
+    title <- paste0("Power to detect difference in ",input$corr_method," correlations >= ",input$power,
+                    ", by sample size and trait correlation in MZ twins\n",
                     input$dist,"\n",
                     "DZ rho: (",input$rho2,")",
                     "; Mz to Dz ratio: ",input$ratio, "; sims: 1000")
     # initialise plot
-    p <- ggplot(NULL, aes(x = rho1, y = n, colour = test, group = test))+ 
+    # p <- ggplot(NULL, aes(x = rho1, y = n, colour = test, group = test))+ 
+    p <- ggplot(NULL, aes(x = rho1, y = n))+ 
       scale_y_continuous(trans='log2',bquote(N~(log[2]~scale)), 
                          breaks = unique(obs()$n),
                          limits = c(30,1920)) +
-      scale_x_continuous(bquote(Rho_mz), 
+      scale_x_continuous(bquote(rho[MZ]), 
                          breaks = seq(0,1,0.1),
                          limits = c(0,1)) +
       geom_point(data = obs())  +
       # geom_line(data = fit, lwd = 1) +
       # geom_hline(yintercept = 0.8) +
       # geom_vline(aes(xintercept = cross$n, colour = cross$test)) +
-      scale_colour_discrete(name="Tests (req. n)"
+      # scale_colour_discrete(name="Tests (req. n)"
                             # ,
                             # breaks=cross$test,
                             # labels=cross$label
-                            )  +
+                            # )  +
       theme(panel.grid.minor = element_blank(),
             panel.background = element_blank(), 
             axis.line = element_line(colour = "black")) +
