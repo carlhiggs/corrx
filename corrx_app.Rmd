@@ -73,7 +73,7 @@ Outputs
 
 # filter data
 obs <- reactive({
-  obs <- corrx_1k_sim %>%
+  corrx_1k_sim %>%
         filter(method  == tolower(input$corr_method) &
                  dist  == input$skewness    &
                  n1/n2 == input$ratio       &
@@ -94,15 +94,15 @@ obs <- reactive({
   })
 # power_obs()
 
-power_estimate <- reactive({
-  power_estimate<-corrx_1k_sim %>%
-    filter(method == input$corr_method &
-             dist == input$skewness    &
-             round(log(n1/n2),2) == round(log(input$ratio),2) &
-             rho1 == 0.4       &
-             rho2 == 0.9
-    ) 
-})
+# power_estimate <- reactive({
+#   corrx_1k_sim %>%
+#     filter(method == input$corr_method &
+#              dist == input$skewness    &
+#              round(log(n1/n2),2) == round(log(input$ratio),2) &
+#              rho1 == 0.4       &
+#              rho2 == 0.9
+#     ) 
+# })
 ```
 
 
@@ -156,6 +156,8 @@ renderPlot({
                          breaks = seq(0,1,0.1),
                          limits = c(0,1)) +
       geom_point(data = obs())  +
+      geom_smooth(data = obs())  +
+      stat_contour(mapping=aes(x = rho1, y = n,z=power),data = obs())  +
       geom_line(data = fit, lwd = 1) +
       # geom_hline(yintercept = 0.8) +
       # geom_vline(aes(xintercept = cross$n, colour = cross$test)) +
