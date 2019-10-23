@@ -2,7 +2,7 @@
 title: "Corrx: Classical Twin Study Power Calculator and Simulation Reference"
 output: 
   flexdashboard::flex_dashboard:
-    orientation: columns
+    orientation: rows
     vertical_layout: fill
     source_code: embed
     theme: flatly
@@ -11,7 +11,7 @@ runtime: shiny
 ---
 
 
-```{r setup, include=FALSE}
+```{r global, include=FALSE}
 # Carl Higgs, 2019
 
 library(flexdashboard)
@@ -24,25 +24,161 @@ library(reshape2)
 library(data.table)
 library(shinyWidgets)
 
-# plan(multiprocess)
-# read.csv.async <- function(file) {
-#   future({
-#     read.csv(file,  header = TRUE, stringsAsFactors=FALSE)
-#   })
-# }
 corrx_1k_sim <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
   
 ```
-Calculator
-==========
+About
+=========================
+
+Background / Instructions
+
+Some text about
+
+What this does
+
+and
+
+why
+
+Power by sample size
+=========================
 
 Inputs {.sidebar}
 -----------------------------------------------------------------------
+An interactive calculator of power for detecting difference in correlations.  Lorum Ipsom.
+
+Twins Research Australia, 2019.
+```{r}
+# Sample size (x) vs power (y), as for Stata graphs/previous version of app
+# shiny inputs defined here
+hr()
+
+sliderInput("maxn", "Maximum N:", 
+            min=30, max=1000, value=100, step=1)
+
+sliderInput("mzdz", "Ratio of Mz to Dz twin:", 
+            min=0, max=10, value=1, step=0.01)
+ 
+sliderInput("r1", "Corr(x,y) in Mz twins:", 
+            min=0, max=1, value=0.6, step=0.01)
+
+sliderInput("r2", "Corr(x,y) in Dz twins:", 
+            min=0, max=1, value=0.2, step=0.01)
+
+```
+
+
+```{r}
+mydata <- reactive({
+    # Model Parameters:
+      r1        <- input$r1
+      r2        <- input$r2
+      rdiff     <- r1 - r2
+      maxn      <- input$maxn
+      mzdz      <- input$mzdz
+      # alpha     <- input$alpha
+      sidedness <- 2
+      # method    <- input$method
+      method    <- "pearson"
+      # Step 1: calculate Fisher's Z
+      z1        <- atanh(r1)
+      z2        <- atanh(r2)
+      # Step    2: take difference
+      zdiff     <- z1-z2
+      # Step    3: calculate standard errmzor and test statistic
+      tot_n         <- 15:maxn
+      mzdz_vec <- seq(0,10,0.01)
+      # n_p1         <- cbind(mz = tot_n*mzdz,dz = tot_n*(1-mzdz))
+      n_p1         <- cbind(mz = tot_n/(mzdz+1)*mzdz,dz = tot_n/(mzdz+1))
+      n_p2         <- cbind(mz = maxn/(mzdz_vec+1)*mzdz_vec,dz = maxn/(mzdz_vec+1))
+      z_se_p1      <- sqrt(rowSums(1/(n_p1-3)))
+      z_se_p2      <- sqrt(rowSums(1/(n_p2-3)))
+      z_test_p1    <- zdiff/z_se_p1
+      z_test_p2    <- zdiff/z_se_p2
+      # optionally return p-value for observing diff at least this large under H0
+      # z_p    <- sidedness*pnorm(-abs(z_test))
+      z_ref    <- c(qnorm(1-0.1/2),qnorm(1-0.05/2))
+      z_power1a <- 1-pnorm(z_ref[1] - abs(z_test_p1))
+      z_power1b <- 1-pnorm(z_ref[2] - abs(z_test_p1))
+      z_power1  <- rbind(cbind(z_power1a,z_ref[1]),cbind(z_power1b,z_ref[2]))
+      z_power2a <- 1-pnorm(z_ref[1] - abs(z_test_p2))
+      z_power2b <- 1-pnorm(z_ref[2] - abs(z_test_p2))
+      z_power2  <- rbind(cbind(z_power2a,z_ref[1]),cbind(z_power2b,z_ref[2]))
+      colnames(z_power1) <- colnames(z_power2) <- c("power","ref")
+      
+    # Collect and output results
+    params1 <- paste0("MZ:DZ ratio: ",mzdz,"; rho_mz: ",r1,"; rho_dz: ",r2,"; delta: ",rdiff)
+    params2 <- paste0("N: ",maxn,"; rho_mz: ",r1,"; rho_dz: ",r2,"; delta: ",rdiff)
+    data1   <- cbind(n = tot_n,mzdz = mzdz,        mz = n_p1[,1],dz = n_p1[,2] , power1 = z_power1)
+    data2   <- cbind(n = maxn, mzdz_vec = mzdz_vec,mz = n_p2[,1],dz = n_p2[,2] , power2 = z_power2)
+    list(data1 =data1, 
+         data2 = data2, 
+         params1 = params1,
+         params2 = params2 )
+    })
+    
+```
+
+
+Row {.tabset .tabset-fade}
+-------------------------------------
+
+### Power by sample size 
+
+```{r}
+
+renderPlot({
+   p <- ggplot(as.data.frame(mydata()[["data1"]]),
+        aes(x=n, y=power, group=as.character(round(ref,2))))
+   p <- p +
+     geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75) +
+     ggtitle(paste0("Power estimate given parameters (",mydata()[["params1"]],")"))+
+     scale_x_continuous(name="N")+
+     scale_y_continuous(labels = comma, name="Power",limits = c(0,1), expand = c(0,0) ) + 
+     labs(colour = "Normal ordinate")
+   print(p)
+  })
+
+```
+
+### Power by ratio 
+
+```{r}
+
+renderPlot({
+    p <- ggplot(as.data.frame(mydata()[["data2"]]),
+                aes(x=mzdz_vec, y=power, group=as.character(round(ref,2))), log="x")
+    p <- p +
+      geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75) +
+      ggtitle(paste0("Power estimate given parameters (",mydata()[["params2"]],")"))+
+      scale_x_continuous(name="MZ:DZ ratio (log scale)", trans='log',limits = c(0.1,10),breaks=c(0.1,seq(0.2,1,0.2),seq(2,10,2)))+
+      scale_y_continuous(labels = comma, name="Power",limits = c(0,1), expand = c(0,0) ) + 
+      labs(colour = "Normal ordinate")
+    print(p)
+  })
+```
+
+### Power table
+```{r}
+
+renderTable({
+      mydata()[["data2"]]
+    })
+```
+
+Sample size by correlation
+=========================
+
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
 An interactive calculator of power for detecting difference in correlations.  The calculator uses either an analytic formula, or draws upon pre-processed simulation power results for a given set of scenario parameters.
 
 Twins Research Australia, 2019.
 
-```{r, shiny_in}
+```{r}
+# Current graph with rMZ (x) against log(sample size) as y
 # shiny inputs defined here
 hr()
 
@@ -92,27 +228,12 @@ obs <- reactive({
           variable.name="test",
           value.name="power")
   })
-# power_obs()
-
-# power_estimate <- reactive({
-#   corrx_1k_sim %>%
-#     filter(method == input$corr_method &
-#              dist == input$skewness    &
-#              round(log(n1/n2),2) == round(log(input$ratio),2) &
-#              rho1 == 0.4       &
-#              rho2 == 0.9
-#     ) 
-# })
 ```
 
 
 
 ```{r}
-# server <- function(input, output) {
-# Make a barplot or scatterplot depending of the selected point
-# renderTable({
-#   head(obs())
-# })
+
 renderPlot({
     
     # fitted values (interpolated over observed)
@@ -125,21 +246,6 @@ renderPlot({
                                             method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
     fit$n <- as.integer(fit$n)
     fit$rho1 <- as.double(fit$rho1)
-
-    # # find x intercept give y of 0.8
-    # cross <- data.table()
-    # for(x in levels(obs()$test)) {
-    #   cross <- rbind(cross,
-    #                  fit[(test %in% x)][which.min(abs(input$power-fit[(test %in% x),power]))])
-    # }
-    # 
-    # # associate x intercept (required sample size for 80% power) with test name
-    # cross$label <- c("FZ (no sim.)",
-    #                  "FZ")
-    # cross[,"label":= paste0(label," (,n,)"),by=1:nrow(cross)]
-    # 
-    # # order tests by smallest sample size estimate required to achieve power threshold
-    # cross <- cross[order(+rank(n))]
     # define plot title
     title <- paste0("Power to detect difference in ",input$corr_method," correlations >= ",input$power,
                     ", by sample size and trait correlation in MZ twins\n",
@@ -155,12 +261,7 @@ renderPlot({
       scale_x_continuous(bquote(rho[MZ]), 
                          breaks = seq(0,1,0.1),
                          limits = c(0,1)) +
-      geom_point(data = obs())  +
-      geom_smooth(data = obs())  +
-      stat_contour(mapping=aes(x = rho1, y = n,z=power),data = obs())  +
-      geom_line(data = fit, lwd = 1) +
-      # geom_hline(yintercept = 0.8) +
-      # geom_vline(aes(xintercept = cross$n, colour = cross$test)) +
+      geom_smooth(data = obs(),se=FALSE)  +
       # scale_colour_discrete(name="Tests (req. n)"
                             # ,
                             # breaks=cross$test,
@@ -175,19 +276,5 @@ renderPlot({
 # }
 ```
 
-```{r}
-# ui <- fluidPage(
-# 
-#   br(),
-#   column(8,plotOutput("graph")),
-#   br()
-# 
-# 
-# )
-```
-
-```{r}
-# shinyApp(ui = ui, server = server)
-```
 
 
