@@ -40,8 +40,8 @@ and
 
 why
 
-Power by sample size
-=========================
+Twin Study Power Calculator
+===========================
 
 Inputs {.sidebar}
 -----------------------------------------------------------------------
@@ -53,29 +53,47 @@ Twins Research Australia, 2019.
 # shiny inputs defined here
 hr()
 
-sliderInput("maxn", "Maximum N:", 
-            min=30, max=1000, value=100, step=1)
+sliderTextInput("mz_n","Number of MZ twins",
+                choices=c(15,30,60,120,240,480,960),selected=60, grid = T)
+sliderInput("rho1", "Corr(x,y) in Mz twins:",min=0.1, max=.9, value=0.7, step=0.1)
 
-sliderInput("mzdz", "Ratio of Mz to Dz twin:", 
-            min=0, max=10, value=1, step=0.01)
- 
-sliderInput("r1", "Corr(x,y) in Mz twins:", 
-            min=0, max=1, value=0.6, step=0.01)
+sliderTextInput("dz_n","Number of DZ twins",
+                choices=c(15,30,60,120,240,480,960),selected=60, grid = T)
+sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0.1, max=.9, value=0.2, step=0.1)
 
-sliderInput("r2", "Corr(x,y) in Dz twins:", 
-            min=0, max=1, value=0.2, step=0.01)
+selectInput("power", "Select target power proportion: ", choices =c(.8, .9) ,selected = .8)
+selectInput("skewness", "Select variable skewness: ", choices =c('normal', 'mild', 'extreme') ,selected = 'normal')
 
+selectInput("corr_method", "Select correlation method: ", choices =c('Pearson', 'Spearman') ,selected = 'normal')
+    
+observeEvent(input$rho1,{
+
+  if((input$rho1 > input$rho2)&&(input$rho1>0.1)) {
+    val = NULL
+  } 
+  else if(input$rho1>0.1) {
+    val = input$rho1-0.1
+  }
+  else {
+    val = input$rho1
+  }
+  updateSliderInput(session, "rho2",min=0.1, max=input$rho1, value = val, step=0.1)
+})
 ```
 
 
 ```{r}
 mydata <- reactive({
     # Model Parameters:
-      r1        <- input$r1
-      r2        <- input$r2
+      n_mz      <- input$mz_n
+      n_dz      <- input$dz_n
+      n         <- n_mz + n_dz
+      ratio     <- n_mz/n_dz
+      r1        <- input$rho1
+      r2        <- input$rho2
       rdiff     <- r1 - r2
-      maxn      <- input$maxn
-      mzdz      <- input$mzdz
+      maxn      <- n
+      mzdz      <- ratio
       # alpha     <- input$alpha
       sidedness <- 2
       # method    <- input$method
@@ -97,7 +115,7 @@ mydata <- reactive({
       z_test_p2    <- zdiff/z_se_p2
       # optionally return p-value for observing diff at least this large under H0
       # z_p    <- sidedness*pnorm(-abs(z_test))
-      z_ref    <- c(qnorm(1-0.1/2),qnorm(1-0.05/2))
+      z_ref    <- qnorm(1-0.05/2)
       z_power1a <- 1-pnorm(z_ref[1] - abs(z_test_p1))
       z_power1b <- 1-pnorm(z_ref[2] - abs(z_test_p1))
       z_power1  <- rbind(cbind(z_power1a,z_ref[1]),cbind(z_power1b,z_ref[2]))
@@ -116,95 +134,50 @@ mydata <- reactive({
          params1 = params1,
          params2 = params2 )
     })
-    
+scale <- function(x) sprintf("%.1f", x)
 ```
 
 
 Row {.tabset .tabset-fade}
 -------------------------------------
 
-### Power by sample size 
-
-```{r}
-
-renderPlot({
-   p <- ggplot(as.data.frame(mydata()[["data1"]]),
-        aes(x=n, y=power, group=as.character(round(ref,2))))
-   p <- p +
-     geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75) +
-     ggtitle(paste0("Power estimate given parameters (",mydata()[["params1"]],")"))+
-     scale_x_continuous(name="N")+
-     scale_y_continuous(labels = comma, name="Power",limits = c(0,1), expand = c(0,0) ) + 
-     labs(colour = "Normal ordinate")
-   print(p)
-  })
-
-```
-
-### Power by ratio 
+### Power by ratio (analytic formula)
 
 ```{r}
 
 renderPlot({
     p <- ggplot(as.data.frame(mydata()[["data2"]]),
-                aes(x=mzdz_vec, y=power, group=as.character(round(ref,2))), log="x")
+                aes(x=mzdz_vec, y=power), log="x")
     p <- p +
-      geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75) +
+      geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75,show.legend = FALSE) +
       ggtitle(paste0("Power estimate given parameters (",mydata()[["params2"]],")"))+
       scale_x_continuous(name="MZ:DZ ratio (log scale)", trans='log',limits = c(0.1,10),breaks=c(0.1,seq(0.2,1,0.2),seq(2,10,2)))+
-      scale_y_continuous(labels = comma, name="Power",limits = c(0,1), expand = c(0,0) ) + 
-      labs(colour = "Normal ordinate")
+      scale_y_continuous(labels = scale, name="Power",limits = c(0,1), expand = c(0,0) ) 
     print(p)
   })
 ```
 
-### Power table
-```{r}
-
-renderTable({
-      mydata()[["data2"]]
-    })
-```
-
-Sample size by correlation
-=========================
-
-
-Inputs {.sidebar}
------------------------------------------------------------------------
-
-An interactive calculator of power for detecting difference in correlations.  The calculator uses either an analytic formula, or draws upon pre-processed simulation power results for a given set of scenario parameters.
-
-Twins Research Australia, 2019.
+### Power by sample size (analytic formula)
 
 ```{r}
-# Current graph with rMZ (x) against log(sample size) as y
-# shiny inputs defined here
-hr()
 
-selectInput("power", "Select target power proportion: ", choices =c(.8, .9) ,selected = .8)
-selectInput("skewness", "Select variable skewness: ", choices =c('normal', 'mild', 'extreme') ,selected = 'normal')
-selectInput("corr_method", "Select correlation method: ", choices =c('Pearson', 'Spearman') ,selected = 'normal')
-# selectInput("power_method", "Select Fisher's Z implementation: ", choices =c('analytical', 'simulation') ,selected = 'analytical')
-# sliderInput("ratio", "Ratio of Mz to Dz twin:", min=0, max=10, value=1, step=1)
-sliderTextInput("ratio","Ratio value of Mz to Dz twins:",
-                            choices=c(0.015625,0.03125,0.0625,0.125,0.25,0.5,1,2,4,8,16,32,64),
-                            selected=1, grid = T)
-
-
-
-# sliderInput("rho1", "Corr(x,y) in Mz twins:",min=0, max=1, value=0.6, step=0.01)
-sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0.1, max=.9, value=0.7, step=0.1)
-    
-hr()
+renderPlot({
+   p <- ggplot(as.data.frame(mydata()[["data1"]]),
+        aes(x=n, y=power))
+   p <- p +
+     geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75,show.legend = FALSE) +
+     ggtitle(paste0("Power estimate given parameters (",mydata()[["params1"]],")"))+
+     scale_x_continuous(name="N")+
+     scale_y_continuous(labels = scale, name="Power",limits = c(0.0,1.0), expand = c(0,0) ) 
+   print(p)
+  })
 
 ```
 
 
-Outputs
------------------------------------------------------------------------
-    
-### Calculator (<i>set parameters to view plot</i>)
+
+### Sample size and power by correlation (simulation)
+
 ```{r}
 
 # filter data
@@ -212,17 +185,19 @@ obs <- reactive({
   corrx_1k_sim %>%
         filter(method  == tolower(input$corr_method) &
                  dist  == input$skewness    &
-                 n1/n2 == input$ratio       &
-                 rho2  == input$rho2        &
-                 fz    >= input$power
+                 n1    == input$mz_n        &
+                 n2    == input$dz_n        &
+                 rho2  == input$rho2       
+                 #fz    >= input$power
               ) %>%
-        select(n1,n2,rho1,fz_nosim,fz)  %>%
+        select(n1,n2,rho1,rho2, fz_nosim,fz)  %>%
         mutate(n = n1 + n2) %>%
         mutate(log_n = log2(n)) %>%
+        mutate(rdiff = rho1 - rho2) %>%
         # select(n,log_n,rho1,fz_nosim,fz)  %>%
-        select(n,log_n,rho1,fz)  %>%
+        select(n1,n2,n,rho1,rho2,rdiff,fz)  %>%
         melt(
-           id.vars=c("n","log_n","rho1"),
+           id.vars=c("n1","n2","n","rho1","rho2","rdiff"),
           # measure.vars=c("fz_nosim","fz"),
           measure.vars=c("fz"),
           variable.name="test",
@@ -234,13 +209,24 @@ obs <- reactive({
 
 ```{r}
 
+renderTable({
+  obs()
+})
+
 renderPlot({
-    
+    n_mz      <- input$mz_n
+    n_dz      <- input$dz_n
+    n         <- n_mz + n_dz
+    ratio     <- n_mz/n_dz
+    ratio_str <- paste0(n_mz,'/',n_dz)
+    rho1        <- input$rho1
+    rho2        <- input$rho2
+    rdiff     <- rho1 - rho2
     # fitted values (interpolated over observed)
     fit <- data.table()
       fit <- rbind(fit,
                    cbind("n"    = min(obs()[,"n"]):max(obs()[,"n"]),
-                         "rho1" = splinefun(obs()[,"log_n"],
+                         "rho1" = splinefun(log2(obs()[,"n"]),
                                             obs()[,"rho1"],
                                             # method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
                                             method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
@@ -250,8 +236,8 @@ renderPlot({
     title <- paste0("Power to detect difference in ",input$corr_method," correlations >= ",input$power,
                     ", by sample size and trait correlation in MZ twins\n",
                     input$dist,"\n",
-                    "DZ rho: (",input$rho2,")",
-                    "; Mz to Dz ratio: ",input$ratio, "; sims: 1000")
+                    "DZ rho: (",rho2,")",
+                    "; Mz to Dz ratio: ",ratio_str, "; sims: 1000")
     # initialise plot
     # p <- ggplot(NULL, aes(x = rho1, y = n, colour = test, group = test))+ 
     p <- ggplot(NULL, aes(x = rho1, y = n))+ 
