@@ -5,14 +5,13 @@ output:
     orientation: rows
     vertical_layout: fill
     source_code: embed
-    theme: flatly
+    theme: cosmo
 runtime: shiny
 
 ---
 
-
 ```{r global, include=FALSE}
-# Carl Higgs, 2019
+# Carl Higgs, Jess Tyler, Katrina Scurrah, Enes Makalic 2019
 
 library(flexdashboard)
 library(knitr)
@@ -22,30 +21,76 @@ library(scales)
 library(dplyr)
 library(reshape2)
 library(data.table)
+library(magrittr)
 library(shinyWidgets)
 
 corrx_1k_sim <-read.csv("corrx_1k_subset.csv",  header = TRUE, stringsAsFactors=FALSE) 
   
 ```
+
+
+
 About
 =========================
 
-Background / Instructions
+<b>About this application</b>
 
-Some text about
+This application is intended to help researchers estimate the power and sample size required for their classical twin study design. 
 
-What this does
+Parameters that affect the power of your twin study include: 
 
-and
+<ul>
+<li>Number of twin pairs</li>
+<li>The ratio of MZ to DZ pairs  </li>
+<li>The estimated correlation for MZ pairs (monozygotic twins)</li>
+<li>The estimated correlation for DZ pairs (dizygotic twins)</li>
+<li>Whether your data are normally distributed or skewed</li>
+</ul>
 
-why
+
+Variations to these parameters will change the required sample size for your study. The following calculator offered in this application allows different variations of these parameters to be explored so a more informed sample size target can be used to help guide recruitment resources. 
+
+<b>Directions for use</b>
+
+Go to the next tab titled “Twin Study Power Calculator”
+
+In the scenario box on the left-hand side: 
+<ul>
+<li>Select the maximum possible number of MZ and DZ twin pairs. If unsure select a reasonable number and adjust accordingly to ensure the graph reaches appropriate power.</li>
+<li>Input your estimated MZ pair and DZ pair correlations.</li>
+<li>Select your target power</li>
+<li>Select the variable distribution that is expected. Note: the skewed distributions are not strictly accurate but provide a rough example of how skewedness impacts power.</li>
+</ul>
+
+Outputs:
+
+<ul>
+<li>Graph 1: Power by sample size shows the number of twin pairs needed (x-axis) for the desired power (y-axis). Take note the number of pairs to reach your desired target power.</li>
+<li>Graph 2: Power by ratio shows the power (y-axis) given the max sample size selected across a range of MZ to DZ pair ratios.</li>
+<li>table 1: Power by correlation gives a snapshot of the data behind the simulation. You can see the exact power estimates per change in the difference between MZ pair and DZ pair correlations.</li>
+</ul>
+
+Adjust your parameters as you like and see the shift in power and sample size on the graphs. 
+
+<b>Simulation notes</b>
+
+The analytical method used for this simulation was the Fisher z test. 
+
+A fixed alpha of 0.05 is used in this simulation. 
+
+The skewed distributions are not strictly accurate but provide a rough example of how skewedness impacts power. 
+
+<b>Acknowledgements</b>
+
+This application was developed by Carl Higgs as part of his MBiostat research project in collaboration with academic staff at the Centre of Epidemiology and Biostatistics and Twins Research Australia at the University of Melbourne.
+
 
 Twin Study Power Calculator
 ===========================
 
 Inputs {.sidebar}
 -----------------------------------------------------------------------
-An interactive calculator of power for detecting difference in correlations.  Lorum Ipsom.
+An interactive calculator of power for estimating the power and sample size required for their classical twin study design. 
 
 Twins Research Australia, 2019.
 ```{r}
@@ -53,19 +98,17 @@ Twins Research Australia, 2019.
 # shiny inputs defined here
 hr()
 
-sliderTextInput("mz_n","Number of MZ twins",
+sliderTextInput("mz_n","Number of MZ twins (n1)",
                 choices=c(15,30,60,120,240,480,960),selected=60, grid = T)
-sliderInput("rho1", "Corr(x,y) in Mz twins:",min=0.1, max=.9, value=0.7, step=0.1)
+sliderInput("rho1", "Estimated correlation in MZ twins:",min=0.1, max=.9, value=0.7, step=0.1)
 
-sliderTextInput("dz_n","Number of DZ twins",
+sliderTextInput("dz_n","Number of DZ twins (n2)",
                 choices=c(15,30,60,120,240,480,960),selected=60, grid = T)
-sliderInput("rho2", "Corr(x,y) in Dz twins:",min=0.1, max=.9, value=0.2, step=0.1)
+sliderInput("rho2", "Estimated correlation in DZ twins:",min=0.1, max=.9, value=0.2, step=0.1)
 
-selectInput("power", "Select target power proportion: ", choices =c(.8, .9) ,selected = .8)
+selectInput("power", "Select target power proportion", choices =c(.8, .9) ,selected = .8)
 selectInput("skewness", "Select variable skewness: ", choices =c('normal', 'mild', 'extreme') ,selected = 'normal')
 
-selectInput("corr_method", "Select correlation method: ", choices =c('Pearson', 'Spearman') ,selected = 'normal')
-    
 observeEvent(input$rho1,{
 
   if((input$rho1 > input$rho2)&&(input$rho1>0.1)) {
@@ -141,23 +184,7 @@ scale <- function(x) sprintf("%.1f", x)
 Row {.tabset .tabset-fade}
 -------------------------------------
 
-### Power by ratio (analytic formula)
-
-```{r}
-
-renderPlot({
-    p <- ggplot(as.data.frame(mydata()[["data2"]]),
-                aes(x=mzdz_vec, y=power), log="x")
-    p <- p +
-      geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75,show.legend = FALSE) +
-      ggtitle(paste0("Power estimate given parameters (",mydata()[["params2"]],")"))+
-      scale_x_continuous(name="MZ:DZ ratio (log scale)", trans='log',limits = c(0.1,10),breaks=c(0.1,seq(0.2,1,0.2),seq(2,10,2)))+
-      scale_y_continuous(labels = scale, name="Power",limits = c(0,1), expand = c(0,0) ) 
-    print(p)
-  })
-```
-
-### Power by sample size (analytic formula)
+### Power by sample size
 
 ```{r}
 
@@ -175,15 +202,30 @@ renderPlot({
 ```
 
 
+### Power by ratio
 
-### Sample size and power by correlation (simulation)
+```{r}
+
+renderPlot({
+    p <- ggplot(as.data.frame(mydata()[["data2"]]),
+                aes(x=mzdz_vec, y=power), log="x")
+    p <- p +
+      geom_line(aes(colour = as.character(round(ref,2))), size=1, alpha=.75,show.legend = FALSE) +
+      ggtitle(paste0("Power estimate given parameters (",mydata()[["params2"]],")"))+
+      scale_x_continuous(name="MZ:DZ ratio (log scale)", trans='log',limits = c(0.1,10),breaks=c(0.1,seq(0.2,1,0.2),seq(2,10,2)))+
+      scale_y_continuous(labels = scale, name="Power",limits = c(0,1), expand = c(0,0) ) 
+    print(p)
+  })
+```
+
+### Power by correlation
 
 ```{r}
 
 # filter data
 obs <- reactive({
   corrx_1k_sim %>%
-        filter(method  == tolower(input$corr_method) &
+        filter(method  == "pearson" &
                  dist  == input$skewness    &
                  n1    == input$mz_n        &
                  n2    == input$dz_n        &
@@ -196,12 +238,14 @@ obs <- reactive({
         mutate(rdiff = rho1 - rho2) %>%
         # select(n,log_n,rho1,fz_nosim,fz)  %>%
         select(n1,n2,n,rho1,rho2,rdiff,fz)  %>%
-        melt(
+        reshape2::melt(
            id.vars=c("n1","n2","n","rho1","rho2","rdiff"),
           # measure.vars=c("fz_nosim","fz"),
           measure.vars=c("fz"),
           variable.name="test",
-          value.name="power")
+          value.name="power") %>%
+        select(n1,n2,n,rho1,rho2,rdiff,power) %>%
+        set_colnames(c("n1","n2","Total n","r_MZ","r_DZ","r_difference","Power"))
   })
 ```
 
@@ -213,54 +257,53 @@ renderTable({
   obs()
 })
 
-renderPlot({
-    n_mz      <- input$mz_n
-    n_dz      <- input$dz_n
-    n         <- n_mz + n_dz
-    ratio     <- n_mz/n_dz
-    ratio_str <- paste0(n_mz,'/',n_dz)
-    rho1        <- input$rho1
-    rho2        <- input$rho2
-    rdiff     <- rho1 - rho2
-    # fitted values (interpolated over observed)
-    fit <- data.table()
-      fit <- rbind(fit,
-                   cbind("n"    = min(obs()[,"n"]):max(obs()[,"n"]),
-                         "rho1" = splinefun(log2(obs()[,"n"]),
-                                            obs()[,"rho1"],
-                                            # method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
-                                            method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
-    fit$n <- as.integer(fit$n)
-    fit$rho1 <- as.double(fit$rho1)
-    # define plot title
-    title <- paste0("Power to detect difference in ",input$corr_method," correlations >= ",input$power,
-                    ", by sample size and trait correlation in MZ twins\n",
-                    input$dist,"\n",
-                    "DZ rho: (",rho2,")",
-                    "; Mz to Dz ratio: ",ratio_str, "; sims: 1000")
-    # initialise plot
-    # p <- ggplot(NULL, aes(x = rho1, y = n, colour = test, group = test))+ 
-    p <- ggplot(NULL, aes(x = rho1, y = n))+ 
-      scale_y_continuous(trans='log2',bquote(N~(log[2]~scale)), 
-                         breaks = unique(obs()$n),
-                         limits = c(30,1920)) +
-      scale_x_continuous(bquote(rho[MZ]), 
-                         breaks = seq(0,1,0.1),
-                         limits = c(0,1)) +
-      geom_smooth(data = obs(),se=FALSE)  +
-      # scale_colour_discrete(name="Tests (req. n)"
-                            # ,
-                            # breaks=cross$test,
-                            # labels=cross$label
-                            # )  +
-      theme(panel.grid.minor = element_blank(),
-            panel.background = element_blank(), 
-            axis.line = element_line(colour = "black")) +
-      ggtitle(title)
-    print(p)
-  })
-# }
-```
+# renderPlot({
+#     n_mz      <- input$mz_n
+#     n_dz      <- input$dz_n
+#     n         <- n_mz + n_dz
+#     ratio     <- n_mz/n_dz
+#     ratio_str <- paste0(n_mz,'/',n_dz)
+#     rho1        <- input$rho1
+#     rho2        <- input$rho2
+#     rdiff     <- rho1 - rho2
+#     # fitted values (interpolated over observed)
+#     fit <- data.table()
+#       fit <- rbind(fit,
+#                    cbind("n"    = min(obs()[,"n"]):max(obs()[,"n"]),
+#                          "rho1" = splinefun(log2(obs()[,"n"]),
+#                                             obs()[,"rho1"],
+#                                             # method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
+#                                             method = "monoH.FC")(log2(min(obs()$n):max(obs()$n)))))
+#     fit$n <- as.integer(fit$n)
+#     fit$rho1 <- as.double(fit$rho1)
+#     # define plot title
+#     title <- paste0("Power to detect difference in Pearson correlations >= ",input$power,
+#                     ", by sample size and trait correlation in MZ twins\n",
+#                     input$dist,"\n",
+#                     "DZ rho: (",rho2,")",
+#                     "; Mz to Dz ratio: ",ratio_str, "; sims: 1000")
+#     # initialise plot
+#     # p <- ggplot(NULL, aes(x = rho1, y = n, colour = test, group = test))+
+#     p <- ggplot(NULL, aes(x = rho1, y = n))+
+#       scale_y_continuous(trans='log2',bquote(N~(log[2]~scale)),
+#                          breaks = unique(obs()$n),
+#                          limits = c(30,1920)) +
+#       scale_x_continuous(bquote(rho[MZ]),
+#                          breaks = seq(0,1,0.1),
+#                          limits = c(0,1)) +
+#       geom_smooth(data = obs(),se=FALSE)  +
+#       # scale_colour_discrete(name="Tests (req. n)"
+#                             # ,
+#                             # breaks=cross$test,
+#                             # labels=cross$label
+#                             # )  +
+#       theme(panel.grid.minor = element_blank(),
+#             panel.background = element_blank(),
+#             axis.line = element_line(colour = "black")) +
+#       ggtitle(title)
+#     print(p)
+#   })
 
+```
 
 
